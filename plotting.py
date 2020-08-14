@@ -20,7 +20,6 @@ register_matplotlib_converters()
 #################################################################
 
 def make_directory(folder_name):
-
     existing_folders = next(os.walk('.'))[1]
     if folder_name in existing_folders:
         print('----------------------------------------------------------')
@@ -32,6 +31,7 @@ def make_directory(folder_name):
         print('----------------------------------------------------------')
         print('Created folder "' + folder_name + '" in current directory.')
         print('----------------------------------------------------------')
+
 
 def adjust_yaxis(ax, ydif, v):
     """shift axis ax by ydiff, maintaining point v at the same location"""
@@ -73,163 +73,125 @@ def extract_results(model, approach, **kwargs):
 
     # ########################### Get DataFrame out of Pyomo and rename series
 
-    # TODO: Completely revise results_extraction (see mail from Julian Endres)
+    # Introduce shorcuts
+    bus_elec_seqs = solph.views.node(model.es.results['main'], 'bus_elec')['sequences']
+    dsm_seqs = solph.views.node(model.es.results['main'], 'demand_dsm')['sequences']
 
     # Generators coal
-    df_coal_1 = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('pp_coal_1', 'bus_elec'), 'flow')]
-    df_coal_1.rename('coal1', inplace=True)
+    df_coal_1 = bus_elec_seqs[
+        (('pp_coal_1', 'bus_elec'), 'flow')].rename('coal1', inplace=True)
 
     # Generators RE
-    df_wind = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('wind', 'bus_elec'), 'flow')]
-    df_wind.rename('wind', inplace=True)
+    df_wind = bus_elec_seqs[
+        (('wind', 'bus_elec'), 'flow')].rename('wind', inplace=True)
 
-    df_pv = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('pv', 'bus_elec'), 'flow')]
-    df_pv.rename('pv', inplace=True)
+    df_pv = bus_elec_seqs[
+        (('pv', 'bus_elec'), 'flow')].rename('pv', inplace=True)
 
     # Shortage/Excess
-    df_shortage = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('shortage_el', 'bus_elec'), 'flow')]
-    df_shortage.rename('shortage', inplace=True)
+    df_shortage = bus_elec_seqs[
+        (('shortage_el', 'bus_elec'), 'flow')].rename('shortage', inplace=True)
 
-    df_excess = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('bus_elec', 'excess_el'), 'flow')]
-    df_excess.rename('excess', inplace=True)
+    df_excess = bus_elec_seqs[
+        (('bus_elec', 'excess_el'), 'flow')].rename('excess', inplace=True)
 
-    # DSM Demand
-    df_demand_dsm = solph.views.node(model.es.results['main'], 'bus_elec')['sequences'][
-        (('bus_elec', 'demand_dsm'), 'flow')]
-    df_demand_dsm.rename('demand_dsm', inplace=True)
+    # ---------------- Extract DSM results (all approaches) ---------------------
+    # Parts of results extraction is dependent on kwargs (might be removed later)
+    use_no_shed = kwargs.get('use_no_shed', False)
+
+    # Demand after DSM
+    df_demand_dsm = bus_elec_seqs[
+        (('bus_elec', 'demand_dsm'), 'flow')].rename('demand_dsm',
+                                                     inplace=True)
+
+    # Downwards shifts (shifting)
+    df_dsmdo_shift = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                      == 'dsm_do_shift'].sum(
+        axis=1).rename('dsm_do_shift', inplace=True)
+
+    # Downwards shifts (shedding)
+    if not (approach == "DLR" and use_no_shed):
+        df_dsmdo_shed = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                         == 'dsm_do_shed'].sum(
+            axis=1).rename('dsm_do_shed', inplace=True)
+
+    # Upwards shifts
+    df_dsmup = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                == 'dsm_up'].sum(
+        axis=1).rename('dsm_up', inplace=True)
 
     # Print the sequences for the demand response unit in order to include
     # proper slicing
-    # print(solph.views.node(model.es.results['main'], 'demand_dsm')[
-    #            'sequences'].columns)
+    # print(dsm_seqs.columns)
 
     df_dsm_add = None
 
-    # DSM Variables - Get additional values dependent on approach chosen
-    if approach == "DIW":
-        df_dsmdo_shift = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, 1:-2].sum(axis=1)
-        df_dsmdo_shed = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, -2]
-        df_dsmup = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, -1]
+    # Get additional DSM results dependent on approach considered
+    if approach == "TUD":
+        # DSM storage level
+        df_dsmsl = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                    == 'dsm_sl'].sum(
+            axis=1).rename('dsm_sl', inplace=True)
 
-    elif (approach == "IER") or (approach == "TUD"):
-        df_dsmdo_shift = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, 2]
-        df_dsmdo_shed = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, 1]
-        df_dsmup = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, -1]
-
-        if approach == "TUD":
-            df_dsmsl = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                             'sequences'].iloc[:, -2]
-            df_dsmsl.rename('dsm_sl', inplace=True)
-
-            df_dsm_add = df_dsmsl.copy()
+        df_dsm_add = df_dsmsl.copy()
 
     elif approach == "DLR":
-        use_no_shed = kwargs.get('use_no_shed', False)
-        # use_shifting_classes = kwargs.get('use_no_shifting_classes', False)
+        # Original shift values
+        df_dsmdo_orig = df_dsmdo_shift.copy().rename('dsm_do_orig',
+                                                     inplace=True)
+        df_dsmup_orig = df_dsmup.copy().rename('dsm_up_orig',
+                                               inplace=True)
 
-        # Introduce a dict to map the idx location to the respective approach (w/wo shedding)
-        dict_map_idx = {
-            'with_shed':{'dsmdo_shift': [4, 6],
-                         'dsmdo_shed': 5,
-                         'dsmup': [3, 7],
-                         'dsmdo_orig': 6,
-                         'dsmup_orig': 7,
-                         'dsmdo_bal': 3,
-                         'dsmup_bal': 5,
-                         'dsmslup': 2,
-                         'dsmsldo': 1},
-        }
+        # Balacing values
+        df_dsmdo_bal = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                    == 'balance_dsm_do'].sum(
+            axis=1).rename('balance_dsm_do', inplace=True)
+        df_dsmup_bal = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                    == 'balance_dsm_up'].sum(
+            axis=1).rename('balance_dsm_up', inplace=True)
 
-        vals_wo_shed = [[2, 4], [], [1, 5], 4, 5, 1, 2, 6, 3]
+        # DSM storage levels
+        df_dsmsldo = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                        == 'dsm_do_level'].sum(
+            axis=1).rename('dsm_sl_do', inplace=True)
+        df_dsmslup = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
+                                        == 'dsm_up_level'].sum(
+            axis=1).rename('dsm_sl_up', inplace=True)
 
-        dict_map_idx['wo_shed'] = {k: v for k, v
-                                   in zip(dict_map_idx["with_shed"].keys(),
-                                          vals_wo_shed)}
-
-        if not use_no_shed:
-            key = 'with_shed'
-        else:
-            key = 'wo_shed'
-
-        df_dsmdo_shift = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmdo_shift']].sum(axis=1)
-        df_dsmdo_shed = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmdo_shed']]
-        df_dsmup = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmup']].sum(axis=1)
-
-        # Get individual dsm values as well as dsm storage levels, too
-        df_dsmdo_orig = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmdo_orig']]
-        df_dsmdo_orig.rename('dsm_do_orig', inplace=True)
-
-        df_dsmup_orig = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmup_orig']]
-        df_dsmup_orig.rename('dsm_up_orig', inplace=True)
-
-        df_dsmdo_bal = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmdo_bal']]
-        df_dsmdo_bal.rename('balance_dsm_do_orig', inplace=True)
-
-        df_dsmup_bal = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmup_bal']]
-        df_dsmup_bal.rename('balance_dsm_up_orig', inplace=True)
-
-        df_dsmslup = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmslup']]
-        df_dsmslup.rename('dsm_sl_up', inplace = True)
-
-        df_dsmsldo = solph.views.node(model.es.results['main'], 'demand_dsm')[
-                       'sequences'].iloc[:, dict_map_idx[key]['dsmsldo']]
-        df_dsmsldo.rename('dsm_sl_do', inplace=True)
+        df_dsmdo_shift = df_dsmdo_orig.add(df_dsmup_bal).rename('dsm_do_shift',
+                                                                inplace=True)
+        df_dsmup = df_dsmup_orig.add(df_dsmdo_bal).rename('dsm_up',
+                                                          inplace=True)
 
         df_dsm_add = pd.concat([df_dsmdo_orig, df_dsmup_orig,
                                 df_dsmdo_bal, df_dsmup_bal,
-                                df_dsmslup, df_dsmsldo], axis=1)
+                                df_dsmsldo, df_dsmslup], axis=1)
 
-    else:
-        raise ValueError("No valid value for approach. Must be one of ['DIW', 'IER', 'DLR', 'TUD']")
-
-    df_dsmdo_shift.rename('dsm_do_shift', inplace=True)
-    if not (approach == "DLR" and use_no_shed):
-        df_dsmdo_shed.rename('dsm_do_shed', inplace=True)
-    df_dsmup.rename('dsm_up', inplace=True)
-
+    # Effective DSM shift (shifting only)
     df_dsm_tot = df_dsmdo_shift - df_dsmup
     df_dsm_tot.rename('dsm_tot', inplace=True)
 
+    # DSM storage level
     df_dsm_acum = df_dsm_tot.cumsum()
     df_dsm_acum.rename('dsm_acum', inplace=True)
 
-
-    # Demand
+    # Original demand before DSM
     df_demand_el = [_ for _ in model.NODES.data() if str(_) == 'demand_dsm'][0].demand
     df_demand_el.rename('demand_el', inplace=True)
 
-    # Demand
+    # Capacity limit for upshift
     df_capup = [_ for _ in model.NODES.data() if str(_) == 'demand_dsm'][0].capacity_up
     df_capup.rename('cap_up', inplace=True)
 
-    # Demand
+    # Capacity limit for downshift
     df_capdo = [_ for _ in model.NODES.data() if str(_) == 'demand_dsm'][0].capacity_down
     df_capdo.rename('cap_do', inplace=True)
 
-    # ####### Merge into one DataFrame
-    df_model = pd.concat([df_coal_1,  df_wind, df_pv, df_excess, df_shortage,
+    # ####### Merge alld data into one DataFrame
+    df_model = pd.concat([df_coal_1, df_wind, df_pv, df_excess, df_shortage,
                           df_demand_dsm, df_dsmdo_shift, df_dsmdo_shed, df_dsmup,
                           df_dsm_tot, df_dsm_acum, df_demand_el, df_capup, df_capdo],
-                          axis=1)
+                         axis=1)
 
     # Add additional dsm values for certain approaches
     if df_dsm_add is not None:
@@ -239,7 +201,7 @@ def extract_results(model, approach, **kwargs):
 
 
 def plot_dsm(df_gesamt, directory, project, days, **kwargs):
-
+    """ Create a plot of DSM activity """
     figsize = kwargs.get('figsize', (15, 10))
     save = kwargs.get('save', False)
     approach = kwargs.get('approach', None)
@@ -252,8 +214,8 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
     # ############ DATA PREPARATION FOR FIGURE #############################
 
     # Create Figure
-    for info, slice in df_gesamt.resample(str(days)+'D'):
-        
+    for info, slice in df_gesamt.resample(str(days) + 'D'):
+
         # Generators from model
         # hierarchy for plot: wind, pv, coal, shortage
         graph_wind = slice.wind.values
@@ -263,15 +225,15 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
 
         #################
         # first axis
-        #get_ipython().run_line_magic('matplotlib', 'notebook')
+        # get_ipython().run_line_magic('matplotlib', 'notebook')
         fig, ax1 = plt.subplots(figsize=figsize)
         ax1.set_ylim(ax1_ylim)
 
         # x-Axis date format
         ax1.xaxis_date()
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m - %H h'))  # ('%d.%m-%H h'))
-        ax1.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days*24+1, 'h'))
-        plt.xticks(pd.date_range(start=info._date_repr, periods=days*24, freq='H'), rotation=90)
+        ax1.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days * 24 + 1, 'h'))
+        plt.xticks(pd.date_range(start=info._date_repr, periods=days * 24, freq='H'), rotation=90)
 
         # Demands
         # ax1.plot(range(timesteps), dsm, label='demand_DSM', color='black')
@@ -279,7 +241,8 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
         ax1.step(slice.index, slice.demand_dsm.values, where='post', label='Demand after DSM', color='black')
 
         # DSM Capacity
-        ax1.step(slice.index, slice.demand_el + slice.cap_up, where='post', label='DSM Capacity', color='red', linestyle='--')
+        ax1.step(slice.index, slice.demand_el + slice.cap_up, where='post', label='DSM Capacity', color='red',
+                 linestyle='--')
         ax1.step(slice.index, slice.demand_el - slice.cap_do, where='post', color='red', linestyle='--')
 
         # Generators
@@ -299,56 +262,62 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
 
         plt.grid()
 
-
         ###########################
         # Second axis
         ax2 = ax1.twinx()
         ax2.xaxis_date()
         ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m - %H h'))  # ('%d.%m-%H h'))
-        ax2.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days*24+1, 'h'))
-        plt.xticks(pd.date_range(start=info._date_repr, periods=days*24, freq='H'), rotation=90)
+        ax2.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days * 24 + 1, 'h'))
+        plt.xticks(pd.date_range(start=info._date_repr, periods=days * 24, freq='H'), rotation=90)
 
         ax2.set_ylim(ax2_ylim)
-        #align_yaxis(ax1, 100, ax2, 0)
-
+        # align_yaxis(ax1, 100, ax2, 0)
 
         # DSM up/down
 
-        #ax2.step(slice.index, slice.dsm_acum, where='post',
+        # ax2.step(slice.index, slice.dsm_acum, where='post',
         #         label='DSM acum', alpha=0.5, color='orange')
 
         ax2.fill_between(slice.index, 0, -slice.dsm_do_shift,
                          step='post',
                          label='DSM_down_shift',
                          facecolor='red',
-                         #hatch='.',
+                         # hatch='.',
                          alpha=0.3)
         if not (approach == "DLR" and use_no_shed):
             ax2.fill_between(slice.index, -slice.dsm_do_shift,
-                             -(slice.dsm_do_shift+slice.dsm_do_shed),
+                             -(slice.dsm_do_shift + slice.dsm_do_shed),
                              step='post',
                              label='DSM_down_shed',
                              facecolor='blue',
-                             #hatch='.',
+                             # hatch='.',
                              alpha=0.3)
         ax2.fill_between(slice.index, 0, slice.dsm_up,
                          step='post',
                          label='DSM_up',
                          facecolor='green',
-                         #hatch='.',
+                         # hatch='.',
                          alpha=0.3)
-        ax2.fill_between(slice.index, 0, slice.dsm_acum,
-                         step='post',
-                         label='DSM acum',
-                         facecolor=None,
-                         hatch='x',
-                         alpha=0.0)
+        # ax2.fill_between(slice.index, 0, slice.dsm_acum,
+        ax2.plot(slice.index, slice.dsm_acum,
+                 linestyle='none',
+                 markersize=8,
+                 marker="D",
+                 color="dimgrey",
+                 fillstyle='none',
+                 drawstyle="steps-post",
+                 # step='post',
+                 label='DSM acum',
+                 # facecolor=None,
+                 # hatch='x',
+                 # alpha=0.0)
+                 )
 
         # Legend axis 2
         ax2.legend(bbox_to_anchor=(0., -0.3, 1., 0.102), loc=3, ncol=3, borderaxespad=0., mode="expand")
         ax1.set_xlabel('Time t in h')
         ax1.set_ylabel('MW')
-        ax2.set_ylabel('MW')
+        ax2.set_ylabel('$\Delta$ MW')
 
         if approach is not None:
             plt.title(approach)
@@ -363,4 +332,3 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
             fig.savefig(directory + 'graphics/' + name)
             plt.close()
             print(name + ' saved.')
-
