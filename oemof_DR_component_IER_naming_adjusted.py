@@ -314,12 +314,12 @@ class SinkDSIBlock(SimpleBlock):
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
                         
                         # DSI down
-                        lhs = sum(self.dsm_do_shift[g, t]
-                                  for t in range(t, t + g.delay_time + 1))
+                        lhs = sum(self.dsm_do_shift[g, tt]
+                                  for tt in range(t, t + g.delay_time + 1))
 
                         # DSI up
-                        rhs = sum(self.dsm_up[g, t] * g.efficiency
-                                  for t in range(t, t + g.delay_time + 1))
+                        rhs = sum(self.dsm_up[g, tt] * g.efficiency
+                                  for tt in range(t, t + g.delay_time + 1))
 
                         # add constraint
                         block.dsi_energy_balance.add((g, t), (lhs == rhs))
@@ -327,12 +327,12 @@ class SinkDSIBlock(SimpleBlock):
                     else:
 
                         # DSI down
-                        lhs = sum(self.dsm_do_shift[g, t]
-                                  for t in range(t, m.TIMESTEPS[-1] + 1))
+                        lhs = sum(self.dsm_do_shift[g, tt]
+                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
 
                         # DSI up
-                        rhs = sum(self.dsm_up[g, t] * g.efficiency
-                                  for t in range(t, m.TIMESTEPS[-1] + 1))
+                        rhs = sum(self.dsm_up[g, tt] * g.efficiency
+                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
 
                         # add constraint
                         block.dsi_energy_balance.add((g, t), (lhs == rhs))
@@ -377,7 +377,7 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_down,
-                                  (m.TIMESTEPS[-1] - t)) * max(g.capacity_down[t]
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[t]
                                                       for t in m.TIMESTEPS)
 
                         # add constraint
@@ -422,7 +422,7 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shed_time,
-                                  (m.TIMESTEPS[-1] - t)) * max(g.capacity_down[t]
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[t]
                                                       for t in m.TIMESTEPS)
 
                         # add constraint
@@ -468,7 +468,7 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_up,
-                                  (m.TIMESTEPS[-1] - t)) * max(g.capacity_up[t]
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_up[t]
                                                       for t in m.TIMESTEPS)
 
                         # add constraint

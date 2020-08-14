@@ -5,9 +5,9 @@ Created on Fri Aug 16 09:32:12 2019
 @author: Johannes Kochems, Julian Endres
 
 Module for creating a Demand Response component.
-Uses the formulation given in the PhD thesis Gils, Hans Christian (2015): 
-Balancing of Intermittent Renewable Power Generation by Demand Response and 
-Thermal Energy Storage, Stuttgart, http://dx.doi.org/10.18419/opus-6888, 
+Uses the formulation given in the PhD thesis Gils, Hans Christian (2015):
+Balancing of Intermittent Renewable Power Generation by Demand Response and
+Thermal Energy Storage, Stuttgart, http://dx.doi.org/10.18419/opus-6888,
 accessed 16.08.2019, pp. 67-70.
 
 The model formulation is used within the (GAMS-based) energy system model
@@ -23,6 +23,7 @@ are matched.
 
 A special thank you goes to Julian Endres and the oemof developping team at RLI.
 """
+import itertools
 
 from numpy import mean
 
@@ -48,7 +49,7 @@ class SinkDR(Sink):
     capacity_up: int
         availability factor for upwards load shifts
         Corresponds to P_exist * s_free[t] in the original terminology
-    delay_time: int 
+    delay_time: int
         shiftig time (time until energy balance is levelled out again)
         Corresponds to t_shift in the original terminology
     shift_time: int
@@ -103,18 +104,8 @@ class SinkDR(Sink):
         self.capacity_up = sequence(capacity_up)
         self.demand = sequence(demand)
 
-        # NOT USED HERE: Alternative to introduce "flexible" delay times
-        # Corresponds to definition of set H in Gils (2015, p. 67)
-        # Approach used here: Pyomo Set is used instead (see below)
-        # if not isinstance(delay_time, abc.Iterable):
-        #     self.delay_time = list(range(1, delay_time+1))
-        # else:
-        #     self.delay_time = delay_time
-
-        # New idea: Define delay time as a range object here already in order
-        # to transform it to a set and to be able to use it for iteration
-        self.delay_time = range(1, delay_time+1)
-        # self.delay_time = delay_time
+        # Introduce "flexible" delay_times: delay_time is an iterable here
+        self.delay_time = [el for el in range(1, delay_time + 1)]
         self.shift_time = shift_time
         self.shed_time = shed_time
         self.cost_dsm_up = cost_dsm_up
@@ -244,59 +235,63 @@ class SinkDRBlock(SimpleBlock):
         # Set of DR Components
         self.DR = Set(initialize=[n for n in group])
 
-        # Depict different delay times per unit:
-        # If delay_time is set to 3 (hours), a delay of 1 or 2 (hours)
-        # is also feasible
-        # Note: A pyomo RangeSet could be used, too
-        # TODO: Find approach that works for multiple units as well
-        # Assumption is that the solution found only works when only one DSM unit exists!
-        # def init_shift(m):
-        #     for n in group:
-        #         return list(range(1, n.delay_time+1))
+        # Depict different delay_times per unit:
+        # Do a mapping
+        # Solution is based on this stack overflow issue:
+        # https://stackoverflow.com/questions/59237082/variable-indexed-by-an-indexed-set-with-pyomo
+        # accessed 13.08.2020
+        map_DR_H = {k: v for k, v in zip([n for n in group],
+                                         [n.delay_time for n in group])}
 
-        # self.H = Set(initialize=[range(1, n.delay_time+1) for n in group])
-        self.H = Set(initialize=[n.delay_time for n in group])
-        # self.H = Set(initialize=init_shift)
+        unique_H = set(itertools.chain.from_iterable(map_DR_H.values()))
+        self.H = Set(initialize=unique_H)
 
-        # Idea for alternative: Form a product of both sets
-        self.DR_H = Set(initialize=[(n, n.delay_time) for n in group])
+        self.DR_H = Set(within=self.DR * self.H,
+                        initialize=[(dr, h) for dr in map_DR_H for h in map_DR_H[dr]])
 
         #  ************* VARIABLES *****************************
 
         # Variable load shift down (capacity)
         # Corresponds to P_reduction in the original terminology
-        self.dsm_do_shift = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        # self.dsm_do_shift = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        self.dsm_do_shift = Var(self.DR_H, m.TIMESTEPS, initialize=0,
                                 within=NonNegativeReals)
 
         # Variable for load shedding (capacity)
         # Corresponds to P_reduction in the original terminology
-        self.dsm_do_shed = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        # self.dsm_do_shed = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        self.dsm_do_shed = Var(self.DR, m.TIMESTEPS, initialize=0,
                                within=NonNegativeReals)
 
         # Variable load shift up (capacity)
         # Corresponds to P_increase in the original terminology
-        self.dsm_up = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
-                              within=NonNegativeReals)
+        # self.dsm_up = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        self.dsm_up = Var(self.DR_H, m.TIMESTEPS, initialize=0,
+                          within=NonNegativeReals)
 
         # Variable balance load shift down through upwards shift (capacity)
         # Corresponds to P_balanceRed in the original terminology
-        self.balance_dsm_do = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
-                                within=NonNegativeReals)
+        # self.balance_dsm_do = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        self.balance_dsm_do = Var(self.DR_H, m.TIMESTEPS, initialize=0,
+                                  within=NonNegativeReals)
 
         # Variable balance load shift up through downwards shift (capacity)
         # Corresponds to P_balanceInc in the original terminology
-        self.balance_dsm_up = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
-                                within=NonNegativeReals)
+        # self.balance_dsm_up = Var(self.DR, self.H, m.TIMESTEPS, initialize=0,
+        self.balance_dsm_up = Var(self.DR_H, m.TIMESTEPS, initialize=0,
+                                  within=NonNegativeReals)
 
         # Variable fictious DR storage level for downwards load shifts (energy)
         # Corresponds to W_levelRed in the original terminology
+        # self.dsm_do_level = Var(self.DR, m.TIMESTEPS, initialize=0,
         self.dsm_do_level = Var(self.DR, m.TIMESTEPS, initialize=0,
-                              within=NonNegativeReals)
+                                within=NonNegativeReals)
 
         # Variable fictious DR storage level for upwards load shifts (energy)
         # Corresponds to W_levelInc in the original terminology
+        # self.dsm_up_level = Var(self.DR, m.TIMESTEPS, initialize=0,
         self.dsm_up_level = Var(self.DR, m.TIMESTEPS, initialize=0,
-                              within=NonNegativeReals)
+                                within=NonNegativeReals)
 
         #  ************* CONSTRAINTS *****************************
 
@@ -308,25 +303,23 @@ class SinkDRBlock(SimpleBlock):
             """
             for t in m.TIMESTEPS:
                 for g in group:
-                    # TODO: Check whether implementation works; if not: adapt!
-                    # for h in self.H:
                     for h in g.delay_time:
-    
+
                         if not g.shift_eligibility:
                             # Memo: By forcing dsm_do_shift for shifting to zero, dsm up should
                             # implicitly be forced to zero as well, since otherwhise,
                             # constraints below would not hold ...
                             lhs = self.dsm_do_shift[g, h, t]
                             rhs = 0
-    
+
                             block.shift_shed_vars.add((g, h, t), (lhs == rhs))
-    
+
                         if not g.shed_eligibility:
-                            lhs = self.dsm_do_shed[g, h, t]
+                            lhs = self.dsm_do_shed[g, t]
                             rhs = 0
-    
+
                             block.shift_shed_vars.add((g, h, t), (lhs == rhs))
-    
+
         self.shift_shed_vars = Constraint(group, self.H, m.TIMESTEPS,
                                           noruleinit=True)
         self.shift_shed_vars_build = BuildAction(
@@ -341,16 +334,19 @@ class SinkDRBlock(SimpleBlock):
             """
 
             for t in m.TIMESTEPS:
+
                 for g in group:
 
                     # outflow from bus
                     lhs = m.flow[g.inflow, g, t]
 
                     # Demand +- DR
-                    rhs = g.demand[t] + sum(
-                        self.dsm_up[g, h, t] + self.balance_dsm_do[g, h, t]
-                        - self.dsm_do_shift[g, h, t] - self.balance_dsm_up[g, h, t]
-                        - self.dsm_do_shed[g, h, t] for h in g.delay_time)
+                    rhs = g.demand[t] + sum(self.dsm_up[g, h, t]
+                                            + self.balance_dsm_do[g, h, t]
+                                            - self.dsm_do_shift[g, h, t]
+                                            - self.balance_dsm_up[g, h, t]
+                                            for h in g.delay_time) \
+                          - self.dsm_do_shed[g, t]
 
                     # add constraint
                     block.input_output_relation.add((g, t), (lhs == rhs))
@@ -362,12 +358,11 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.8
         def capacity_balance_red_rule(block):
-            """ 
+            """
             Load reduction must be balanced by load increase within delay_time
             """
             for t in m.TIMESTEPS:
                 for g in group:
-                    # for h in self.H:
                     for h in g.delay_time:
 
                         if g.shift_eligibility:
@@ -407,12 +402,11 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.9
         def capacity_balance_inc_rule(block):
-            """ 
+            """
             Load increased must be balanced by load reduction within delay_time
             """
             for t in m.TIMESTEPS:
                 for g in group:
-                    # for h in self.H:
                     for h in g.delay_time:
 
                         if g.shift_eligibility:
@@ -458,7 +452,6 @@ class SinkDRBlock(SimpleBlock):
         #     """
         #     for t in m.TIMESTEPS:
         #         for g in group:
-        #             # for h in self.H:
         #             for h in g.delay_time:
         #
         #                 if t > m.TIMESTEPS[-1] - h:
@@ -472,7 +465,6 @@ class SinkDRBlock(SimpleBlock):
         # self.no_comp_red_build = BuildAction(
         #     rule=no_comp_red_rule)
 
-
         # Own addition: prevent shifts which cannot be compensated
         # def no_comp_inc_rule(block):
         #     """
@@ -481,7 +473,6 @@ class SinkDRBlock(SimpleBlock):
         #     """
         #     for t in m.TIMESTEPS:
         #         for g in group:
-        #             # for h in self.H:
         #             for h in g.delay_time:
         #
         #                 if t > m.TIMESTEPS[-1] - h:
@@ -497,19 +488,18 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.11
         def availability_red_rule(block):
-            """ 
+            """
             Load reduction must be smaller than or equal to the
             (time-dependent) capacity limit
             """
 
             for t in m.TIMESTEPS:
                 for g in group:
-
                     # load reduction
                     lhs = sum(self.dsm_do_shift[g, h, t]
                               + self.balance_dsm_up[g, h, t]
-                              + self.dsm_do_shed[g, h, t]
-                              for h in g.delay_time)
+                              for h in g.delay_time) \
+                          + self.dsm_do_shed[g, t]
 
                     # upper bound
                     rhs = g.capacity_down[t]
@@ -524,14 +514,12 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.12
         def availability_inc_rule(block):
-            """ 
+            """
             Load increase must be smaller than or equal to the
             (time-dependent) capacity limit
             """
-
             for t in m.TIMESTEPS:
                 for g in group:
-
                     # load increase
                     lhs = sum(self.dsm_up[g, h, t]
                               + self.balance_dsm_do[g, h, t]
@@ -550,11 +538,10 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.13
         def dr_storage_red_rule(block):
-            """ 
+            """
             Fictious demand response storage level for load reductions
             transition equation
             """
-
             for t in m.TIMESTEPS:
                 for g in group:
 
@@ -562,8 +549,8 @@ class SinkDRBlock(SimpleBlock):
                     if t > 0:
                         # reduction minus balancing of reductions
                         lhs = m.timeincrement[t] * sum((self.dsm_do_shift[g, h, t]
-                                                    - self.balance_dsm_do[g, h, t]
-                                                    * g.efficiency) for h in g.delay_time)
+                                                        - self.balance_dsm_do[g, h, t]
+                                                        * g.efficiency) for h in g.delay_time)
 
                         # load reduction storage level transition
                         rhs = self.dsm_do_level[g, t] - self.dsm_do_level[g, t - 1]
@@ -608,7 +595,6 @@ class SinkDRBlock(SimpleBlock):
             Fictious demand response storage level for load increase
             transition equation
             """
-
             for t in m.TIMESTEPS:
                 for g in group:
 
@@ -616,8 +602,8 @@ class SinkDRBlock(SimpleBlock):
                     if t > 0:
                         # increases minus balancing of reductions
                         lhs = m.timeincrement[t] * sum((self.dsm_up[g, h, t]
-                                                    * g.efficiency
-                                                    - self.balance_dsm_up[g, h, t])
+                                                        * g.efficiency
+                                                        - self.balance_dsm_up[g, h, t])
                                                        for h in g.delay_time)
 
                         # load increase storage level transition
@@ -662,7 +648,6 @@ class SinkDRBlock(SimpleBlock):
             """
             Fictious demand response storage level for load reduction limit
             """
-
             for t in m.TIMESTEPS:
                 for g in group:
                     # fictious demand response load reduction storage level
@@ -684,7 +669,6 @@ class SinkDRBlock(SimpleBlock):
             """
             Fictious demand response storage level for load increase limit
             """
-
             for t in m.TIMESTEPS:
                 for g in group:
                     # fictious demand response load reduction storage level
@@ -711,10 +695,8 @@ class SinkDRBlock(SimpleBlock):
             to the others.
             """
             for g in group:
-
                 # sum of all load redutions
-                lhs = sum(sum(self.dsm_do_shed[g, h, t]
-                              for h in g.delay_time)
+                lhs = sum(self.dsm_do_shed[g, t]
                           for t in m.TIMESTEPS)
 
                 # year limit
@@ -732,7 +714,7 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.17
         def dr_yearly_limit_red_rule(block):
-            """ 
+            """
             Introduce overall annual (energy) limit for load reductions resp.
             overall limit for optimization timeframe considered
             """
@@ -760,7 +742,7 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.18
         def dr_yearly_limit_inc_rule(block):
-            """ 
+            """
             Introduce overall annual (energy) limit for load increases resp.
             overall limit for optimization timeframe considered
             """
@@ -788,7 +770,7 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.19
         def dr_daily_limit_red_rule(block):
-            """ 
+            """
             Introduce rolling (energy) limit for load reductions
             This effectively limits DR utalization dependent on
             activations within previous hours.
@@ -827,7 +809,7 @@ class SinkDRBlock(SimpleBlock):
 
         # Equation 4.20
         def dr_daily_limit_inc_rule(block):
-            """ 
+            """
             Introduce rolling (energy) limit for load increases
             This effectively limits DR utalization dependent on
             activations within previous hours.
@@ -877,9 +859,12 @@ class SinkDRBlock(SimpleBlock):
                     if g.addition:
 
                         # sum of load increases and reductions
-                        lhs = sum(self.dsm_up[g, h, t] + self.balance_dsm_do[g, h, t] \
-                              + self.dsm_do_shift[g, h, t] + self.balance_dsm_up[g, h, t] \
-                              + self.dsm_do_shed[g, h, t] for h in g.delay_time)
+                        lhs = sum(self.dsm_up[g, h, t]
+                                  + self.balance_dsm_do[g, h, t]
+                                  + self.dsm_do_shift[g, h, t]
+                                  + self.balance_dsm_up[g, h, t]
+                                  for h in g.delay_time) \
+                              + self.dsm_do_shed[g, t]
 
                         # maximum capacity eligibly for load shifting
                         rhs = max(g.capacity_down[t],
@@ -912,8 +897,7 @@ class SinkDRBlock(SimpleBlock):
                                for h in g.delay_time) * g.cost_dsm_up
                 dr_cost += sum(self.dsm_do_shift[g, h, t]
                                for h in g.delay_time) * g.cost_dsm_down_shift \
-                           + sum(self.dsm_do_shed[g, h, t]
-                                 for h in g.delay_time) * g.cost_dsm_down_shed
+                           + self.dsm_do_shed[g, t] * g.cost_dsm_down_shed
 
         self.cost = Expression(expr=dr_cost)
 
@@ -962,7 +946,7 @@ class SinkDRInvestmentBlock(SinkDRBlock):
         # constraints and features may probably be inherited, so there probably
         # is no need to define everything from the scractch again.
 
-    # 17.08.2019, JK: Taken from oemof.solph.components.GenericInvestmentStorageBlock    
+    # 17.08.2019, JK: Taken from oemof.solph.components.GenericInvestmentStorageBlock
     def _objective_expression(self):
         r""" Objective expression with fixed and investement costs.
         """
