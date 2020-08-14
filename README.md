@@ -7,7 +7,8 @@ Examples have been based on those from this repo: https://github.com/windnode/Si
 | File | description |
 | --- | --- |
 | oemof_sink_DSM.py | Demand response implementation by DIW, see Zerrahn & Schill (2015a, pp. 842-843) and Zerrahn and Schill (2015b) |
-| oemof_DR_component_DLR_naming_adjusted_no_shed.py | Demand response implementation by DLR, see Gils (2015, pp. 67-70); implementation does not yet contain load shedding as well as demand response shifting classes; terminology from the oemof SinkDSM component is used |
+| oemof_DR_component_DLR_naming_adjusted_shifting_classes.py | Demand response implementation by DLR, see Gils (2015, pp. 67-70); implementation contains load shedding as well as demand response shifting classes; terminology from the oemof SinkDSM component is used |
+| oemof_DR_component_DLR_naming_adjusted_no_shed.py | Demand response implementation by DLR, see Gils (2015, pp. 67-70); implementation doesn't contain load shedding as well as demand response shifting classes; terminology from the oemof SinkDSM component is used |
 | oemof_DR_component_IER_naming_adjusted.py | Demand response implementation by IER, see Steurer (2017, pp. 80-82); terminology from the oemof SinkDSM component is used | oemof_DR_component_TUD_naming_adjusted.py | Demand response implementation by TU Dresden, see Ladwig (2018, pp. 90-93); implementation does not include Power-to-X; terminology from the oemof SinkDSM component is used |
 | DSM-Modelling-Example.ipynb | A jupyter notebook containing some examples for usage of the components |
 | plotting.py | A module for results extraction and plots (needs to be revised) |
