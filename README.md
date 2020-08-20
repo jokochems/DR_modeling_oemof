@@ -28,11 +28,11 @@ Energien, Dresden, https://nbn-resolving.org/urn:nbn:de:bsz:14-qucosa-236074,
 accessed 02.05.2020.
 * Steurer, Martin (2017): 
 Analyse von Demand Side Integration im Hinblick auf eine effiziente und 
-umweltfreundliche Energieversorgung, Stuttgart, 10.18419/opus-9181,
+umweltfreundliche Energieversorgung, Stuttgart, https://doi.org/10.18419/opus-9181,
 accessed 17.08.2019.
 * Zerrahn, Alexander and Schill,
 Wolf-Peter (2015a): On the representation of demand-side management in power
-system models, in: Energy (84), pp. 840-845, 10.1016/j.energy.2015.03.037.
+system models, in: Energy (84), pp. 840-845, https://doi.org/10.1016/j.energy.2015.03.037.
 accessed 16.08.2019, pp. 840-845.
 * Zerrahn, Alexander and Schill, Wolf-Peter (2015b):
 A Greenfield Model to Evaluate Long-Run Power Storage Requirements
