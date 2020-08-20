@@ -73,13 +73,30 @@ def extract_results(model, approach, **kwargs):
 
     # ########################### Get DataFrame out of Pyomo and rename series
 
+    # TODO: Add results extraction and plotting for cases with more than one DSM unit
+    # Determine amount of DSM units
+    # introduce_second_dsm_unit = kwargs.get('introduce_second_dsm_unit', False)
+
+    # Determine which generation results to exctract
+    include_coal = kwargs.get('include_coal', True)
+    include_gas = kwargs.get('include_gas', False)
+
     # Introduce shorcuts
     bus_elec_seqs = solph.views.node(model.es.results['main'], 'bus_elec')['sequences']
     dsm_seqs = solph.views.node(model.es.results['main'], 'demand_dsm')['sequences']
 
     # Generators coal
-    df_coal_1 = bus_elec_seqs[
-        (('pp_coal_1', 'bus_elec'), 'flow')].rename('coal1', inplace=True)
+    if include_coal:
+        df_coal_1 = bus_elec_seqs[
+            (('pp_coal_1', 'bus_elec'), 'flow')].rename('coal1', inplace=True)
+    else:
+        df_coal_1 = pd.Series(index=bus_elec_seqs.index)
+
+    if include_gas:
+        df_gas_1 = bus_elec_seqs[
+            (('pp_gas_1', 'bus_elec'), 'flow')].rename('gas1', inplace=True)
+    else:
+        df_gas_1 = pd.Series(index=bus_elec_seqs.index)
 
     # Generators RE
     df_wind = bus_elec_seqs[
@@ -114,6 +131,8 @@ def extract_results(model, approach, **kwargs):
         df_dsmdo_shed = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
                                          == 'dsm_do_shed'].sum(
             axis=1).rename('dsm_do_shed', inplace=True)
+    else:
+        df_dsmdo_shed = pd.Series(index=dsm_seqs.index)
 
     # Upwards shifts
     df_dsmup = dsm_seqs.iloc[:, dsm_seqs.columns.str[1]
@@ -188,9 +207,10 @@ def extract_results(model, approach, **kwargs):
     df_capdo.rename('cap_do', inplace=True)
 
     # ####### Merge alld data into one DataFrame
-    df_model = pd.concat([df_coal_1, df_wind, df_pv, df_excess, df_shortage,
+    df_model = pd.concat([df_coal_1, df_gas_1, df_wind, df_pv, df_excess, df_shortage,
                           df_demand_dsm, df_dsmdo_shift, df_dsmdo_shed, df_dsmup,
-                          df_dsm_tot, df_dsm_acum, df_demand_el, df_capup, df_capdo],
+                          df_dsm_tot, df_dsm_acum, df_demand_el,
+                          df_capup, df_capdo],
                          axis=1)
 
     # Add additional dsm values for certain approaches
@@ -206,6 +226,7 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
     save = kwargs.get('save', False)
     approach = kwargs.get('approach', None)
     include_approach = kwargs.get('include_approach', False)
+    include_generators = kwargs.get('include_generators', False)
     ax1_ylim = kwargs.get('ax1_ylim', [-10, 250])
     ax2_ylim = kwargs.get('ax2_ylim', [-110, 150])
 
@@ -217,11 +238,13 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
     for info, slice in df_gesamt.resample(str(days) + 'D'):
 
         # Generators from model
-        # hierarchy for plot: wind, pv, coal, shortage
-        graph_wind = slice.wind.values
-        graph_pv = graph_wind + slice.pv.values
-        graph_coal = graph_pv + slice.coal1.values
-        graph_shortage = graph_coal + slice.shortage.values
+        # hierarchy for plot: wind, pv, coal, gas, shortage
+        if include_generators:
+            graph_wind = slice.wind.values
+            graph_pv = graph_wind + slice.pv.values
+            graph_coal = graph_pv + slice.coal1.values
+            graph_gas = graph_coal + slice.gas1.values
+            graph_shortage = graph_gas + slice.shortage.values
 
         #################
         # first axis
@@ -246,15 +269,17 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
         ax1.step(slice.index, slice.demand_el - slice.cap_do, where='post', color='red', linestyle='--')
 
         # Generators
-        # ax1.fill_between(slice.index, 0, graph_wind, step='post', label='Wind', facecolor='darkcyan', alpha=0.5)
-        # ax1.fill_between(slice.index, graph_wind, graph_pv, step='post', label='PV', facecolor='gold', alpha=0.5)
-        # ax1.fill_between(slice.index, graph_pv, graph_coal, step='post', label='Coal', facecolor='black', alpha=0.5)
-        # ax1.fill_between(slice.index, slice.demand_dsm.values, graph_coal,
-        #                  step='post',
-        #                  label='Excess',
-        #                  facecolor='firebrick',
-        #                  hatch='/',
-        #                  alpha=0.5)
+        if include_generators:
+            ax1.fill_between(slice.index, 0, graph_wind, step='post', label='Wind', facecolor='darkcyan', alpha=0.5)
+            ax1.fill_between(slice.index, graph_wind, graph_pv, step='post', label='PV', facecolor='gold', alpha=0.5)
+            ax1.fill_between(slice.index, graph_pv, graph_coal, step='post', label='Coal', facecolor='black', alpha=0.5)
+            ax1.fill_between(slice.index, graph_coal, graph_gas, step='post', label='Gas', facecolor='brown', alpha=0.5)
+            # ax1.fill_between(slice.index, slice.demand_dsm.values, graph_coal,
+            #                  step='post',
+            #                  label='Excess',
+            #                  facecolor='firebrick',
+            #                  hatch='/',
+            #                  alpha=0.5)
 
         ax1.legend(bbox_to_anchor=(0., 1.1, 1., .102), loc=3, ncol=4, mode="expand", borderaxespad=0.)
 

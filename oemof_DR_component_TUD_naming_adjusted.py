@@ -328,15 +328,17 @@ class SinkDSMBlock(SimpleBlock):
 
             for g in group:
                 # Original formulation as in the PhD thesis
-                # Problem: Limits DSM activations to first balancing intervals
+                # Drawback: Limits DSM activations to first balancing intervals
+                # Advantage: limits the amount of shifts
                 intervals = range(m.TIMESTEPS[1],
                                   int(g.annual_frequency_shift * g.delay_time),
                                   int(g.delay_time+1))
 
                 # Adjusted, more flexible formulation
+                # Drawback: poses no limit on overall amount of shifts
                 # intervals = range(m.TIMESTEPS[1],
                 #                   m.TIMESTEPS[-1] + 1,
-                #                   g.delay_time+1)
+                #                   int(g.delay_time+1))
 
                 for interval in intervals:
                     lhs = self.dsm_sl[g, interval]
@@ -364,7 +366,7 @@ class SinkDSMBlock(SimpleBlock):
             Equation 4.31 from Ladwig 2018:
             Limit the amount of energy shifted down within one day
             Equation 4.32 can be integrated here since it only
-            determines the daily intervalls.
+            determines the daily intervals.
             """
 
             for g in group:

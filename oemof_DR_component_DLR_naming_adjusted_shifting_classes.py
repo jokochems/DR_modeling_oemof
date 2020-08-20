@@ -88,6 +88,14 @@ class SinkDR(Sink):
     shift_eligibility : :obj:`boolean`
         Boolean parameter indicating whether unit is eligible for
         load shifting
+    addition : :obj:`boolean`
+        Boolean parameter indicating whether or not to include additional
+        constraint (which corresponds to Eq. 10 from Zerrahn and Schill (2015a)
+    fixes : :obj:`boolean`
+        Boolean parameter indicating whether or not to include additional
+        fixes. These comprise prohibiting shifts which cannot be balanced within
+        the optimization timeframe as well as DSM storage level roundtrip
+        conditions
     """
 
     def __init__(self, demand, capacity_down, capacity_up,
@@ -96,7 +104,7 @@ class SinkDR(Sink):
                  cost_dsm_down_shed=0, efficiency=1,
                  ActivateYearLimit=False, ActivateDayLimit=False,
                  n_yearLimit_shift=None, n_yearLimit_shed=None,
-                 t_dayLimit=None, addition=False,
+                 t_dayLimit=None, addition=False, fixes=False,
                  shed_eligibility=True, shift_eligibility=True, **kwargs):
         super().__init__(**kwargs)
 
@@ -126,6 +134,7 @@ class SinkDR(Sink):
         self.n_yearLimit_shed = n_yearLimit_shed
         self.t_dayLimit = t_dayLimit
         self.addition = addition
+        self.fixes = fixes
         # For the sake of simplicity, shift_eligibility is always set to True at first
         self.shed_eligibility = shed_eligibility
         self.shift_eligibility = shift_eligibility
@@ -445,46 +454,56 @@ class SinkDRBlock(SimpleBlock):
             rule=capacity_balance_inc_rule)
 
         # Own addition: prevent shifts which cannot be compensated
-        # def no_comp_red_rule(block):
-        #     """
-        #     Prevent downwards shifts that cannot be balanced anymore
-        #     within the optimization timeframe
-        #     """
-        #     for t in m.TIMESTEPS:
-        #         for g in group:
-        #             for h in g.delay_time:
-        #
-        #                 if t > m.TIMESTEPS[-1] - h:
-        #                     # no load reduction anymore (dsm_do_shift = 0)
-        #                     lhs = self.dsm_do_shift[g, h, t]
-        #                     rhs = 0
-        #                     block.no_comp_red.add((g, h, t), (lhs == rhs))
-        #
-        # self.no_comp_red = Constraint(group, self.H, m.TIMESTEPS,
-        #                               noruleinit=True)
-        # self.no_comp_red_build = BuildAction(
-        #     rule=no_comp_red_rule)
+        def no_comp_red_rule(block):
+            """
+            Prevent downwards shifts that cannot be balanced anymore
+            within the optimization timeframe
+            """
+            for t in m.TIMESTEPS:
+                for g in group:
+
+                    if g.fixes:
+                        for h in g.delay_time:
+
+                            if t > m.TIMESTEPS[-1] - h:
+                                # no load reduction anymore (dsm_do_shift = 0)
+                                lhs = self.dsm_do_shift[g, h, t]
+                                rhs = 0
+                                block.no_comp_red.add((g, h, t), (lhs == rhs))
+
+                    else:
+                        pass  # return(Constraint.Skip)
+
+        self.no_comp_red = Constraint(group, self.H, m.TIMESTEPS,
+                                      noruleinit=True)
+        self.no_comp_red_build = BuildAction(
+            rule=no_comp_red_rule)
 
         # Own addition: prevent shifts which cannot be compensated
-        # def no_comp_inc_rule(block):
-        #     """
-        #     Prevent upwards shifts that cannot be balanced anymore
-        #     within the optimization timeframe
-        #     """
-        #     for t in m.TIMESTEPS:
-        #         for g in group:
-        #             for h in g.delay_time:
-        #
-        #                 if t > m.TIMESTEPS[-1] - h:
-        #                     # no load increase anymore (dsm_up = 0)
-        #                     lhs = self.dsm_up[g, h, t]
-        #                     rhs = 0
-        #                     block.no_comp_inc.add((g, h, t), (lhs == rhs))
-        #
-        # self.no_comp_inc = Constraint(group, self.H, m.TIMESTEPS,
-        #                               noruleinit=True)
-        # self.no_comp_inc_build = BuildAction(
-        #     rule=no_comp_inc_rule)
+        def no_comp_inc_rule(block):
+            """
+            Prevent upwards shifts that cannot be balanced anymore
+            within the optimization timeframe
+            """
+            for t in m.TIMESTEPS:
+                for g in group:
+
+                    if  g.fixes:
+                        for h in g.delay_time:
+
+                            if t > m.TIMESTEPS[-1] - h:
+                                # no load increase anymore (dsm_up = 0)
+                                lhs = self.dsm_up[g, h, t]
+                                rhs = 0
+                                block.no_comp_inc.add((g, h, t), (lhs == rhs))
+
+                    else:
+                        pass  # return(Constraint.Skip)
+
+        self.no_comp_inc = Constraint(group, self.H, m.TIMESTEPS,
+                                      noruleinit=True)
+        self.no_comp_inc_build = BuildAction(
+            rule=no_comp_inc_rule)
 
         # Equation 4.11
         def availability_red_rule(block):
@@ -574,16 +593,26 @@ class SinkDRBlock(SimpleBlock):
         # def dr_storage_roundtrip_red_rule(block):
         #     """
         #     First and last storage level shall equal each other
+        #
+        #     NOTE: Seems like some redundancy is created here:
+        #     If initial storage levels are set to 0 and it is
+        #     demanded that there are no unbalanced shifts at the
+        #     end, this roundtrip condition is not needed.
         #     """
         #     for g in group:
-        #         # first storage level
-        #         lhs = self.dsm_do_level[g, m.TIMESTEPS[1]]
         #
-        #         # last storage level
-        #         rhs = self.dsm_do_level[g, m.TIMESTEPS[-1]]
+        #         if g.fixes:
+        #             # first storage level
+        #             lhs = self.dsm_do_level[g, m.TIMESTEPS[1]]
         #
-        #         # add constraint
-        #         block.dr_storage_roundtrip_red.add(g, (lhs == rhs))
+        #             # last storage level
+        #             rhs = self.dsm_do_level[g, m.TIMESTEPS[-1]]
+        #
+        #             # add constraint
+        #             block.dr_storage_roundtrip_red.add(g, (lhs == rhs))
+        #
+        #         else:
+        #             pass  # return(Constraint.Skip)
         #
         # self.dr_storage_roundtrip_red = Constraint(group, noruleinit=True)
         # self.dr_storage_roundtrip_red_build = BuildAction(
@@ -628,16 +657,26 @@ class SinkDRBlock(SimpleBlock):
         # def dr_storage_roundtrip_inc_rule(block):
         #     """
         #     First and last storage level shall equal each other
+        #
+        #     NOTE: Seems like some redundancy is created here:
+        #     If initial storage levels are set to 0 and it is
+        #     demanded that there are no unbalanced shifts at the
+        #     end, this roundtrip condition is not needed.
         #     """
         #     for g in group:
-        #         # first storage level
-        #         lhs = self.dsm_up_level[g, m.TIMESTEPS[1]]
         #
-        #         # last storage level
-        #         rhs = self.dsm_up_level[g, m.TIMESTEPS[-1]]
+        #         if g.fixes:
+        #             # first storage level
+        #             lhs = self.dsm_up_level[g, m.TIMESTEPS[1]]
         #
-        #         # add constraint
-        #         block.dr_storage_roundtrip_inc.add(g, (lhs == rhs))
+        #             # last storage level
+        #             rhs = self.dsm_up_level[g, m.TIMESTEPS[-1]]
+        #
+        #             # add constraint
+        #             block.dr_storage_roundtrip_inc.add(g, (lhs == rhs))
+        #
+        #         else:
+        #             pass  # return(Constraint.Skip)
         #
         # self.dr_storage_roundtrip_inc = Constraint(group, noruleinit=True)
         # self.df_storage_roundtrip_inc_build = BuildAction(
@@ -774,6 +813,10 @@ class SinkDRBlock(SimpleBlock):
             Introduce rolling (energy) limit for load reductions
             This effectively limits DR utalization dependent on
             activations within previous hours.
+
+            Note: This effectively limits downshift in the last
+            hour of a time span to the remaining share of an
+            average downshift.
             """
             for t in m.TIMESTEPS:
                 for g in group:
@@ -791,7 +834,7 @@ class SinkDRBlock(SimpleBlock):
                             rhs = g.capacity_down_mean * g.shift_time \
                                   - sum(sum(self.dsm_do_shift[g, h, t - t_dash]
                                             for h in g.delay_time)
-                                        for t_dash in range(g.t_dayLimit))
+                                        for t_dash in range(1, int(g.t_dayLimit)+1))
 
                             # add constraint
                             block.dr_daily_limit_red.add((g, t), (lhs <= rhs))
@@ -813,6 +856,10 @@ class SinkDRBlock(SimpleBlock):
             Introduce rolling (energy) limit for load increases
             This effectively limits DR utalization dependent on
             activations within previous hours.
+
+            Note: This effectively limits upshift in the last
+            hour of a time span to the remaining share of an
+            average upshift.
             """
             for t in m.TIMESTEPS:
                 for g in group:
@@ -830,7 +877,7 @@ class SinkDRBlock(SimpleBlock):
                             rhs = g.capacity_up_mean * g.shift_time \
                                   - sum(sum(self.dsm_up[g, h, t - t_dash]
                                             for h in g.delay_time)
-                                        for t_dash in range(g.t_dayLimit))
+                                        for t_dash in range(1, int(g.t_dayLimit)+1))
 
                             # add constraint
                             block.dr_daily_limit_inc.add((g, t), (lhs <= rhs))
@@ -894,8 +941,10 @@ class SinkDRBlock(SimpleBlock):
         for t in m.TIMESTEPS:
             for g in self.DR:
                 dr_cost += sum(self.dsm_up[g, h, t]
+                               + self.balance_dsm_do[g, h, t]
                                for h in g.delay_time) * g.cost_dsm_up
                 dr_cost += sum(self.dsm_do_shift[g, h, t]
+                               + self.balance_dsm_up[g, h, t]
                                for h in g.delay_time) * g.cost_dsm_down_shift \
                            + self.dsm_do_shed[g, t] * g.cost_dsm_down_shed
 

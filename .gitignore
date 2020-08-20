@@ -7,7 +7,7 @@ __pycache__/
 dumps/
 */results/*.csv
 */results/*.png
-*/graphics/*.png
+*/graphics/
 
 # Ignore files with a special ending (or content)
 *__pycache__*

@@ -312,7 +312,7 @@ class SinkDSIBlock(SimpleBlock):
 
                     # main use case
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
-                        
+
                         # DSI down
                         lhs = sum(self.dsm_do_shift[g, tt]
                                   for tt in range(t, t + g.delay_time + 1))
@@ -359,12 +359,12 @@ class SinkDSIBlock(SimpleBlock):
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
                         
                         # DSI down
-                        lhs = sum(self.dsm_do_shift[g, t] * m.timeincrement[t]
-                                  for t in range(t, t + g.delay_time + 1))
+                        lhs = sum(self.dsm_do_shift[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, t + g.delay_time + 1))
 
                         # maximum energy to be shifted
-                        rhs = g.shift_time_down * max(g.capacity_down[t]
-                                                      for t in m.TIMESTEPS)
+                        rhs = g.shift_time_down * max(g.capacity_down[tt]
+                                                      for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_down.add((g, t), (lhs <= rhs))
@@ -372,13 +372,13 @@ class SinkDSIBlock(SimpleBlock):
                     else:
 
                         # DSI down
-                        lhs = sum(self.dsm_do_shift[g, t] * m.timeincrement[t]
-                                  for t in range(t, m.TIMESTEPS[-1] + 1))
+                        lhs = sum(self.dsm_do_shift[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_down,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[t]
-                                                      for t in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[tt]
+                                                      for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_down.add((g, t), (lhs <= rhs))
@@ -404,12 +404,12 @@ class SinkDSIBlock(SimpleBlock):
                     if t <= m.TIMESTEPS[-1] - g.shed_time:
 
                         # DSI down
-                        lhs = sum(self.dsm_do_shed[g, t] * m.timeincrement[t]
-                                  for t in range(t, t + g.shed_time + 1))
+                        lhs = sum(self.dsm_do_shed[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, t + g.shed_time + 1))
 
                         # maximum energy to be shifted
-                        rhs = g.shed_time * max(g.capacity_down[t]
-                                                for t in m.TIMESTEPS)
+                        rhs = g.shed_time * max(g.capacity_down[tt]
+                                                for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shedding_limit.add((g, t), (lhs <= rhs))
@@ -417,13 +417,13 @@ class SinkDSIBlock(SimpleBlock):
                     else:
 
                         # DSI down
-                        lhs = sum(self.dsm_do_shed[g, t] * m.timeincrement[t]
-                                  for t in range(t, m.TIMESTEPS[-1] + 1))
+                        lhs = sum(self.dsm_do_shed[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
 
                         # maximum energy to be shifted
                         rhs = min(g.shed_time,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[t]
-                                                      for t in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[tt]
+                                                      for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shedding_limit.add((g, t), (lhs <= rhs))
@@ -450,12 +450,12 @@ class SinkDSIBlock(SimpleBlock):
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
                         
                         # DSI up
-                        lhs = sum(self.dsm_up[g, t] * m.timeincrement[t]
-                                  for t in range(t, t + g.delay_time + 1))
+                        lhs = sum(self.dsm_up[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, t + g.delay_time + 1))
 
                         # maximum energy to be shifted
-                        rhs = g.shift_time_up * max(g.capacity_up[t]
-                                                    for t in m.TIMESTEPS)
+                        rhs = g.shift_time_up * max(g.capacity_up[tt]
+                                                    for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_up.add((g, t), (lhs <= rhs))
@@ -463,13 +463,13 @@ class SinkDSIBlock(SimpleBlock):
                     else:
 
                         # DSI up
-                        lhs = sum(self.dsm_up[g, t] * m.timeincrement[t]
-                                  for t in range(t, m.TIMESTEPS[-1] + 1))
+                        lhs = sum(self.dsm_up[g, tt] * m.timeincrement[tt]
+                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_up,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_up[t]
-                                                      for t in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_up[tt]
+                                                      for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_up.add((g, t), (lhs <= rhs))
