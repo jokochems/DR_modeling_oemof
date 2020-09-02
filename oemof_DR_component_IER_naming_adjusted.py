@@ -64,6 +64,10 @@ class SinkDSI(Sink):
         switching time for load shifting unit (time for one load
         downwards adjustment <= half a shifting cycle)
         Corresponds to d_s_pos in the original terminology
+    shed_time: int
+        maximum duration of load shedding process (at full capacity)
+    start_times: list of int
+        timesteps at which a load shift process may start
     efficiency: float
         efficiency of load shifting unit
     cumulative_shift_time: int
@@ -79,6 +83,9 @@ class SinkDSI(Sink):
     addition: boolean
         Boolean parameter indicating, whether or not to use an own additional
         constraint similar to Equation 10 from Zerrahn and Schill (2015)
+    fixes: boolean
+        Boolean parameter indicating whether or not to add own fixes to the
+        modeling approach
     shed_eligibility : :obj:`boolean`
         Boolean parameter indicating whether unit is eligible for
         load shedding
@@ -89,13 +96,13 @@ class SinkDSI(Sink):
 
     def __init__(self, demand, capacity_up, capacity_down,
                  delay_time, shift_time_up, shift_time_down, shed_time,
-                 cumulative_shift_time, cumulative_shed_time,
+                 start_times, cumulative_shift_time, cumulative_shed_time,
                  cost_dsm_up=0, cost_dsm_down_shift=0,
                  cost_dsm_down_shed=0, efficiency=1,
-                 addition=False, shed_eligibility=True,
+                 addition=False, fixes=False, shed_eligibility=True,
                  shift_eligibility=True, **kwargs):
         super().__init__(**kwargs)
-        
+
         self.capacity_down = sequence(capacity_down)
         self.capacity_up = sequence(capacity_up)
         self.demand = sequence(demand)
@@ -103,6 +110,7 @@ class SinkDSI(Sink):
         self.shift_time_down = shift_time_down
         self.shift_time_up = shift_time_up
         self.shed_time = shed_time
+        self.start_times = start_times
         self.cumulative_shift_time = cumulative_shift_time
         self.cumulative_shed_time = cumulative_shed_time
         self.cost_dsm_up = cost_dsm_up
@@ -110,6 +118,7 @@ class SinkDSI(Sink):
         self.cost_dsm_down_shed = cost_dsm_down_shed
         self.efficiency = efficiency
         self.addition = addition
+        self.fixes = fixes
         self.shed_eligibility = shed_eligibility
         self.shift_eligibility = shift_eligibility
 
@@ -259,7 +268,6 @@ class SinkDSIBlock(SimpleBlock):
 
             for t in m.TIMESTEPS:
                 for g in group:
-
                     # DSI down
                     lhs = self.dsm_do_shift[g, t] + self.dsm_do_shed[g, t]
 
@@ -284,7 +292,6 @@ class SinkDSIBlock(SimpleBlock):
 
             for t in m.TIMESTEPS:
                 for g in group:
-
                     # DSI up
                     lhs = self.dsm_up[g, t]
 
@@ -305,42 +312,147 @@ class SinkDSIBlock(SimpleBlock):
             Equation 4-4 from Steurer 2017:
             Downwards load shifts must be equal to upwards ones within a given
             shifting time, i.e. the energy balance must be levelled out
+
+            Load shifts may start at any potential starting timestep t_A which has to
+            be defined prior to the model run.
             """
 
             for t in m.TIMESTEPS:
                 for g in group:
 
-                    # main use case
-                    if t <= m.TIMESTEPS[-1] - g.delay_time:
+                    if t in g.start_times:
 
-                        # DSI down
-                        lhs = sum(self.dsm_do_shift[g, tt]
-                                  for tt in range(t, t + g.delay_time + 1))
+                        # main use case
+                        if t <= m.TIMESTEPS[-1] - g.delay_time:
 
-                        # DSI up
-                        rhs = sum(self.dsm_up[g, tt] * g.efficiency
-                                  for tt in range(t, t + g.delay_time + 1))
+                            # DSI down
+                            lhs = sum(self.dsm_do_shift[g, tt]
+                                      for tt in range(t, t + g.delay_time + 1))
 
-                        # add constraint
-                        block.dsi_energy_balance.add((g, t), (lhs == rhs))
+                            # DSI up
+                            rhs = sum(self.dsm_up[g, tt] * g.efficiency
+                                      for tt in range(t, t + g.delay_time + 1))
+
+                            # add constraint
+                            block.dsi_energy_balance.add((g, t), (lhs == rhs))
+
+                        else:
+
+                            # DSI down
+                            lhs = sum(self.dsm_do_shift[g, tt]
+                                      for tt in range(t, m.TIMESTEPS[-1] + 1))
+
+                            # DSI up
+                            rhs = sum(self.dsm_up[g, tt] * g.efficiency
+                                      for tt in range(t, m.TIMESTEPS[-1] + 1))
+
+                            # add constraint
+                            block.dsi_energy_balance.add((g, t), (lhs == rhs))
 
                     else:
-
-                        # DSI down
-                        lhs = sum(self.dsm_do_shift[g, tt]
-                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
-
-                        # DSI up
-                        rhs = sum(self.dsm_up[g, tt] * g.efficiency
-                                  for tt in range(t, m.TIMESTEPS[-1] + 1))
-
-                        # add constraint
-                        block.dsi_energy_balance.add((g, t), (lhs == rhs))
+                        pass
 
         self.dsi_energy_balance = Constraint(group, m.TIMESTEPS,
                                              noruleinit=True)
         self.dsi_energy_balance_build = BuildAction(
             rule=dsi_energy_balance_rule)
+
+        # Own addition: Prevent activations
+        # which cannot be levelled out anymore (down)
+        def prevent_unbalanced_down_rule(block):
+            """
+            Rule prevents unbalanced downshift from happening after
+            last possible starting timestep.
+            """
+            for t in m.TIMESTEPS:
+                for g in group:
+
+                    if g.fixes:
+
+                        for no, st in enumerate(g.start_times):
+
+                            if no < len(g.start_times) - 1:
+
+                                # Force all downshifts in between two
+                                # starting timesteps to zero
+                                if (g.start_times[no] + g.delay_time < t
+                                        < g.start_times[no+1]):
+
+                                    # DSI down
+                                    lhs = self.dsm_do_shift[g, t]
+
+                                    # DSI up
+                                    rhs = 0
+
+                                    # add constraint
+                                    block.dsi_unbalanced_down.add((g, t), (lhs == rhs))
+
+                            else:
+
+                                # No downshift after last starting timestep
+                                if t >= g.start_times[-1] + g.delay_time + 1:
+
+                                    # DSI down
+                                    lhs = self.dsm_do_shift[g, t]
+
+                                    # DSI up
+                                    rhs = 0
+
+                                    # add constraint
+                                    block.dsi_unbalanced_down.add((g, t), (lhs == rhs))
+
+        self.dsi_unbalanced_down = Constraint(group, m.TIMESTEPS,
+                                              noruleinit=True)
+        self.dsi_unbalanced_down_build = BuildAction(
+            rule=prevent_unbalanced_down_rule)
+
+        # Own addition: Prevent activations
+        # which cannot be levelled out anymore (up)
+        def prevent_unbalanced_up_rule(block):
+            """
+            Rule prevents unbalanced load shift from happening after
+            last possible starting timestep.
+            """
+            for t in m.TIMESTEPS:
+                for g in group:
+
+                    if g.fixes:
+
+                        for no, st in enumerate(g.start_times):
+
+                            if no < len(g.start_times) - 1:
+
+                                # Force all downshifts in between two
+                                # starting timesteps to zero
+                                if (g.start_times[no] + g.delay_time < t
+                                        < g.start_times[no+1]):
+
+                                    # DSI down
+                                    lhs = self.dsm_up[g, t]
+
+                                    # DSI up
+                                    rhs = 0
+
+                                    # add constraint
+                                    block.dsi_unbalanced_up.add((g, t), (lhs == rhs))
+
+                            else:
+
+                                if t >= g.start_times[-1] + g.delay_time + 1:
+
+                                    # DSI down
+                                    lhs = self.dsm_up[g, t]
+
+                                    # DSI up
+                                    rhs = 0
+
+                                    # add constraint
+                                    block.dsi_unbalanced_up.add((g, t), (lhs == rhs))
+
+        self.dsi_unbalanced_up = Constraint(group, m.TIMESTEPS,
+                                            noruleinit=True)
+        self.dsi_unbalanced_up_build = BuildAction(
+            rule=prevent_unbalanced_up_rule)
 
         # Equation 4-5 (down)
         def dsi_shifting_limit_down_rule(block):
@@ -357,7 +469,7 @@ class SinkDSIBlock(SimpleBlock):
 
                     # main use case
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
-                        
+
                         # DSI down
                         lhs = sum(self.dsm_do_shift[g, tt] * m.timeincrement[tt]
                                   for tt in range(t, t + g.delay_time + 1))
@@ -377,8 +489,8 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_down,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[tt]
-                                                      for tt in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t) + 1) * max(g.capacity_down[tt]
+                                                                   for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_down.add((g, t), (lhs <= rhs))
@@ -422,14 +534,14 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shed_time,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_down[tt]
-                                                      for tt in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t) + 1) * max(g.capacity_down[tt]
+                                                                   for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shedding_limit.add((g, t), (lhs <= rhs))
 
         self.dsi_shedding_limit = Constraint(group, m.TIMESTEPS,
-                                                  noruleinit=True)
+                                             noruleinit=True)
         self.dsi_shedding_limit_build = BuildAction(
             rule=dsi_shedding_limit_rule)
 
@@ -448,7 +560,7 @@ class SinkDSIBlock(SimpleBlock):
 
                     # main use case
                     if t <= m.TIMESTEPS[-1] - g.delay_time:
-                        
+
                         # DSI up
                         lhs = sum(self.dsm_up[g, tt] * m.timeincrement[tt]
                                   for tt in range(t, t + g.delay_time + 1))
@@ -468,8 +580,8 @@ class SinkDSIBlock(SimpleBlock):
 
                         # maximum energy to be shifted
                         rhs = min(g.shift_time_up,
-                                  (m.TIMESTEPS[-1] - t)+1) * max(g.capacity_up[tt]
-                                                      for tt in m.TIMESTEPS)
+                                  (m.TIMESTEPS[-1] - t) + 1) * max(g.capacity_up[tt]
+                                                                   for tt in m.TIMESTEPS)
 
                         # add constraint
                         block.dsi_shifting_limit_up.add((g, t), (lhs <= rhs))
@@ -478,7 +590,7 @@ class SinkDSIBlock(SimpleBlock):
                                                 noruleinit=True)
         self.dsi_shifting_limit_up_build = BuildAction(
             rule=dsi_shifting_limit_up_rule)
-        
+
         # Equation 4-6 (down)
         def dsi_overall_energy_limit_down_rule(block):
             """
@@ -491,9 +603,8 @@ class SinkDSIBlock(SimpleBlock):
             formulation and therefore is omitted here. Instead, one constraint
             for every simulation timeframe (year) does make much more sense.
             """
-            
+
             for g in group:
-                
                 # DSI down
                 lhs = sum(self.dsm_do_shift[g, t] * m.timeincrement[t]
                           for t in range(m.TIMESTEPS[1],
@@ -531,7 +642,7 @@ class SinkDSIBlock(SimpleBlock):
 
                 # maximum energy to be shifted
                 rhs = g.cumulative_shed_time * max(g.capacity_down[t]
-                                                    for t in m.TIMESTEPS)
+                                                   for t in m.TIMESTEPS)
 
                 # add constraint
                 block.dsi_overall_shedding_limit.add((g), (lhs <= rhs))
@@ -539,7 +650,7 @@ class SinkDSIBlock(SimpleBlock):
         self.dsi_overall_shedding_limit = Constraint(group, noruleinit=True)
         self.dsi_overall_shedding_limit_build = BuildAction(
             rule=dsi_overall_shedding_limit_rule)
-        
+
         # Equation 4-6 (up)
         def dsi_overall_energy_limit_up_rule(block):
             """
@@ -552,9 +663,8 @@ class SinkDSIBlock(SimpleBlock):
             formulation and therefore is omitted here. Instead, one constraint
             for every simulation timeframe (year) does make much more sense.
             """
-            
+
             for g in group:
-                
                 # DSI down
                 lhs = sum(self.dsm_up[g, t]
                           for t in range(m.TIMESTEPS[1],
@@ -578,7 +688,7 @@ class SinkDSIBlock(SimpleBlock):
             The sum of upwards and downwards shifts may not be greater than the
             (bigger) capacity limit.
             """
-            
+
             for t in m.TIMESTEPS:
                 for g in group:
 
@@ -619,6 +729,7 @@ class SinkDSIBlock(SimpleBlock):
         self.cost = Expression(expr=dsi_cost)
 
         return self.cost
+
 
 class SinkDSIInvestmentBlock(SinkDSIBlock):
     pass
