@@ -1,27 +1,24 @@
 # DR_modeling_oemof
-Some work in progress for further developping the SinkDSM component of the framework oemof
+Some example notebooks for testing and integrating amendments to the SinkDSM component into the module oemof.solph of the framework oemof.
 
 Examples have been based on those from this repo: https://github.com/windnode/SinkDSM_example
 
-## Files overview
-| File | description |
+## Repo overview
+| Folder | description |
 | --- | --- |
-| oemof_sink_DSM.py | Demand response implementation by DIW, see Zerrahn & Schill (2015a, pp. 842-843) and Zerrahn and Schill (2015b) |
-| oemof_DR_component_DLR_naming_adjusted_shifting_classes.py | Demand response implementation by DLR, see Gils (2015, pp. 67-70); implementation contains load shedding as well as demand response shifting classes; terminology from the oemof SinkDSM component is used |
-| oemof_DR_component_DLR_naming_adjusted_no_shed.py | Demand response implementation by DLR, see Gils (2015, pp. 67-70); implementation doesn't contain load shedding as well as demand response shifting classes; terminology from the oemof SinkDSM component is used |
-| oemof_DR_component_IER_naming_adjusted.py | Demand response implementation by IER, see Steurer (2017, pp. 80-82); terminology from the oemof SinkDSM component is used | oemof_DR_component_TUD_naming_adjusted.py | Demand response implementation by TU Dresden, see Ladwig (2018, pp. 90-93); implementation does not include Power-to-X; terminology from the oemof SinkDSM component is used |
-| DSM-Modelling-Example.ipynb | A jupyter notebook containing some examples for usage of the components |
-| plotting.py | A module for results extraction and plots (needs to be revised) |
+| INREC_examples | Examples used for a presentation at the INREC 2020 on a demand response modeling comparison (see slides at top level) |
+| oemof_PR | Testing and examples for the enhancements (to be) integrated into oemof.solph |
 
 ## Usage
-* Run DSM-Modelling-Example.ipynb to get an impression on how the different approaches behave.
-* Have a look at the implementations for development issues.
+* INREC_exmaples: Run DSM-Modelling-Example.ipynb to get an impression on how the different approaches behave.
+* oemof_PR: Run DSM-Modelling_oemof-integration-test.ipynb to get an impression of the implementation.
 
 ## Literature
 * Gils, Hans Christian (2015): 
 Balancing of Intermittent Renewable Power Generation by Demand Response and 
 Thermal Energy Storage, Stuttgart, http://dx.doi.org/10.18419/opus-6888, 
 accessed 16.08.2019.
+* Kochems, Johannes (2020): Demand response potentials for Germany: potential clustering and comparison of modeling approaches, presentation at the INREC conference 2020, https://github.com/jokochems/DR_modeling_oemof/blob/master/Kochems_Demand_Response_INREC.pdf, accessed 20.03.2021.
 * Ladwig, Theresa (2018):
 Demand Side Management in Deutschland zur Systemintegration erneuerbarer
 Energien, Dresden, https://nbn-resolving.org/urn:nbn:de:bsz:14-qucosa-236074,
