@@ -17,9 +17,6 @@ from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 
 
-#################################################################
-
-
 def make_directory(folder_name):
     existing_folders = next(os.walk("."))[1]
     if folder_name in existing_folders:
@@ -73,14 +70,7 @@ def extract_results(model, approach, **kwargs):
     :return: df_model: pd.DataFrame
         A pd.DataFrame containing the concatenated and renamed results sequences
     """
-
-    # ########################### Get DataFrame out of Pyomo and rename series
-
-    # TODO: Add results extraction and plotting for cases with more than one DSM unit
-    # Determine amount of DSM units
-    # introduce_second_dsm_unit = kwargs.get('introduce_second_dsm_unit', False)
-
-    # Determine which generation results to exctract
+    # Determine which generation results to extract
     include_coal = kwargs.get("include_coal", True)
     include_gas = kwargs.get("include_gas", False)
 
@@ -280,48 +270,36 @@ def extract_results(model, approach, **kwargs):
     return df_model
 
 
-def plot_dsm(df_gesamt, directory, project, days, **kwargs):
+def plot_dsm(df_gesamt, directory, project, days, legend=False, **kwargs):
     """Create a plot of DSM activity"""
-    figsize = kwargs.get("figsize", (15, 10))
+    figsize = kwargs.get("figsize", (12, 10))
     save = kwargs.get("save", False)
     approach = kwargs.get("approach", None)
     include_approach = kwargs.get("include_approach", False)
     include_generators = kwargs.get("include_generators", False)
-    ax1_ylim = kwargs.get("ax1_ylim", [-10, 250])
-    ax2_ylim = kwargs.get("ax2_ylim", [-110, 150])
+    ax1_ylim = kwargs.get("ax1_ylim", [-10, 210])
+    ax2_ylim = kwargs.get("ax2_ylim", [-110, 110])
 
     use_no_shed = kwargs.get("use_no_shed", False)
-
-    # ############ DATA PREPARATION FOR FIGURE #############################
 
     # Create Figure
     for info, slice in df_gesamt.resample(str(days) + "D"):
 
         slice_reindexed = slice.reset_index(drop=True)
-        # Generators from model
-        # hierarchy for plot: wind, pv, coal, gas, shortage
+        slice_reindexed["new_index"] = list(range(1, len(slice_reindexed) + 1))
+        slice_reindexed.set_index("new_index", drop=True, inplace=True)
+
         if include_generators:
             graph_wind = slice_reindexed.wind.values
             graph_pv = graph_wind + slice_reindexed.pv.values
             graph_coal = graph_pv + slice_reindexed.coal1.values
             graph_gas = graph_coal + slice_reindexed.gas1.values
-            graph_shortage = graph_gas + slice_reindexed.shortage.values
 
-        #################
         # first axis
-        # get_ipython().run_line_magic('matplotlib', 'notebook')
         fig, ax1 = plt.subplots(figsize=figsize)
         ax1.set_ylim(ax1_ylim)
-
-        # x-Axis date format
-        # ax1.xaxis_date()
-        # ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m - %H h'))  # ('%d.%m-%H h'))
-        # ax1.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days * 24 + 1, 'h'))
-        # plt.xticks(pd.date_range(start=info._date_repr, periods=days * 24, freq='H'), rotation=90)
         plt.xticks(range(1, len(slice_reindexed) + 1), rotation=90)
 
-        # Demands
-        # ax1.plot(range(timesteps), dsm, label='demand_DSM', color='black')
         ax1.step(
             slice_reindexed.index,
             slice_reindexed.demand_el.values,
@@ -393,41 +371,12 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
                 facecolor="brown",
                 alpha=0.5,
             )
-            # ax1.fill_between(slice.index, slice.demand_dsm.values, graph_coal,
-            #                  step='post',
-            #                  label='Excess',
-            #                  facecolor='firebrick',
-            #                  hatch='/',
-            #                  alpha=0.5)
-
-        ax1.legend(
-            bbox_to_anchor=(0.0, 1.07, 1.0, 0.102),
-            loc=3,
-            ncol=4,
-            mode="expand",
-            borderaxespad=0.0,
-        )
-
-        # plt.xticks(range(0,timesteps,5))
 
         plt.grid()
 
-        ###########################
         # Second axis
         ax2 = ax1.twinx()
-        # ax2.xaxis_date()
-        # ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m - %H h'))  # ('%d.%m-%H h'))
-        # ax2.set_xlim(info - pd.Timedelta(1, 'h'), info + pd.Timedelta(days * 24 + 1, 'h'))
-        # plt.xticks(pd.date_range(start=info._date_repr, periods=days * 24, freq='H'), rotation=90)
-
         ax2.set_ylim(ax2_ylim)
-        # align_yaxis(ax1, 100, ax2, 0)
-
-        # DSM up/down
-
-        # ax2.step(slice.index, slice.dsm_acum, where='post',
-        #         label='DSM acum', alpha=0.5, color='orange')
-
         ax2.fill_between(
             slice_reindexed.index,
             0,
@@ -446,7 +395,6 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
                 step="post",
                 label="Lastreduktion (Verzicht)",
                 facecolor="blue",
-                # hatch='.',
                 alpha=0.3,
             )
         ax2.fill_between(
@@ -456,10 +404,8 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
             step="post",
             label="Lasterhöhung",
             facecolor="green",
-            # hatch='.',
             alpha=0.3,
         )
-        # ax2.fill_between(slice.index, 0, slice.dsm_acum,
         ax2.plot(
             slice_reindexed.index,
             slice_reindexed.dsm_acum,
@@ -469,21 +415,28 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
             color="dimgrey",
             fillstyle="none",
             drawstyle="steps-post",
-            # step='post',
             label="Lastmanagementspeicherlevel",
-            # facecolor=None,
-            # hatch='x',
-            # alpha=0.0)
         )
 
-        # Legend axis 2
-        ax2.legend(
-            bbox_to_anchor=(0.0, -0.25, 1.0, 0.102),
-            loc=3,
-            ncol=3,
-            borderaxespad=0.0,
-            mode="expand",
-        )
+        # Legend
+        if legend:
+            handles, labels = [], []
+            for ax_object in [ax1, ax2]:
+                h, l = ax_object.get_legend_handles_labels()
+                handles.extend(h)
+                labels.extend(l)
+
+            _ = plt.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.0, -0.25, 1.0, 0.102),
+                fancybox=True,
+                shadow=False,
+                ncol=3,
+                mode="expand",
+                borderaxespad=0.0,
+            )
         ax1.set_xlabel("Zeit in h", labelpad=10)
         ax1.set_ylabel("Last in MW", labelpad=10)
         ax2.set_ylabel("Laständerung in MW", labelpad=10)
@@ -491,6 +444,8 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
         if approach is not None:
             plt.title(approach)
 
+        _ = ax1.margins(0, 0.05)
+        _ = ax2.margins(0, 0.05)
         plt.show()
 
         if save:
@@ -506,6 +461,6 @@ def plot_dsm(df_gesamt, directory, project, days, **kwargs):
                     + info._date_repr
                     + ".png"
                 )
-            fig.savefig(directory + "graphics/" + name)
+            fig.savefig(directory + "graphics/" + name, bbox_inches="tight")
             plt.close()
             print(name + " saved.")
